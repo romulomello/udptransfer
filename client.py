@@ -18,12 +18,13 @@ def main():
     file_size = len(data)
     client_socket.sendto(struct.pack('!Q', file_size), server_address)
 
-    packets_sent = 0
     packets_acked = 0
+    expected_ack = 0
+    last_packet = file_size // packet_size + 1
 
-    while packets_acked < file_size // packet_size + 1:
-        window_start = packets_sent
-        window_end = min(packets_sent + window_size, file_size // packet_size + 1)
+    while packets_acked < last_packet:
+        window_start = packets_acked
+        window_end = min(packets_acked + window_size, last_packet)
 
         for packet_number in range(window_start, window_end):
             packet = data[packet_number * packet_size:(packet_number + 1) * packet_size]
@@ -40,14 +41,27 @@ def main():
                 if len(response) == 4:
                     confirmation_number = struct.unpack('!I', response)[0]
 
-                    if confirmation_number >= packets_acked and confirmation_number == window_end - 1:
-                        print(f'Packets {window_start} to {confirmation_number} delivered successfully.')
-                        packets_acked = confirmation_number + 1
+                    if confirmation_number == expected_ack:
+                        print(f'Packet #{confirmation_number} delivered successfully.')
+                        packets_acked += 1
+                        expected_ack += 1
+                        if expected_ack == last_packet:
+                            break
+                        packet_number = packets_acked + window_size - 1
+                        packet = data[packet_number * packet_size:(packet_number + 1) * packet_size]
+
+                        packet_with_number = struct.pack('!I', packet_number) + packet
+
+                        client_socket.sendto(packet_with_number, server_address)
+                        print(f'Sent packet #{packet_number}...')
+                    elif confirmation_number < expected_ack:
+                        print(f'Duplicate ACK {confirmation_number} received. Ignoring...')
+                    else:
+                        print(f'Out of order ACK {confirmation_number} received. Resending packets...')
                         break
             except socket.timeout:
-                client_socket.sendto(packet_with_number, server_address)
-
-        packets_sent += window_size
+                print(f'Packet #{expected_ack} timeout. Resending packets...')
+                break
 
     client_socket.close()
 
