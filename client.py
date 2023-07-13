@@ -1,22 +1,32 @@
 import socket
 import struct
+import logging
+
+logging.basicConfig(level=logging.INFO, filename='client.log', filemode='w', format='%(message)s')
+logger = logging.getLogger()
+logger.addHandler(logging.StreamHandler())
 
 def main():
     host = 'localhost'
     port = 12345
     server_address = (host, port)
 
-    packet_size = 1024
-    window_size = 10
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client_socket.settimeout(1.0)
 
     with open('file.test', 'rb') as file:
         data = file.read()
 
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    client_socket.settimeout(1.0)
-
     file_size = len(data)
     client_socket.sendto(struct.pack('!Q', file_size), server_address)
+
+    packet_size, _ = client_socket.recvfrom(1024)
+    packet_size = struct.unpack('!Q', packet_size)[0]
+    logger.info(f'Packet size: {packet_size} bytes')
+
+    window_size, _ = client_socket.recvfrom(1024)
+    window_size = struct.unpack('!Q', window_size)[0]
+    logger.info(f'Window size: {window_size} packets')
 
     packets_acked = 0
     expected_ack = 0
@@ -32,7 +42,7 @@ def main():
             packet_with_number = struct.pack('!I', packet_number) + packet
 
             client_socket.sendto(packet_with_number, server_address)
-            print(f'Sent packet {packet_number}...')
+            logger.info(f'Sent packet {packet_number}...')
 
         while True:
             try:
@@ -42,7 +52,7 @@ def main():
                     confirmation_number = struct.unpack('!I', response)[0]
 
                     if confirmation_number == expected_ack:
-                        print(f'Packet #{confirmation_number} delivered successfully.')
+                        logger.info(f'Packet #{confirmation_number} delivered successfully.')
                         packets_acked += 1
                         expected_ack += 1
                         if expected_ack == last_packet:
@@ -53,14 +63,14 @@ def main():
                         packet_with_number = struct.pack('!I', packet_number) + packet
 
                         client_socket.sendto(packet_with_number, server_address)
-                        print(f'Sent packet #{packet_number}...')
+                        logger.info(f'Sent packet #{packet_number}...')
                     elif confirmation_number < expected_ack:
-                        print(f'Duplicate ACK {confirmation_number} received. Ignoring...')
+                        logger.info(f'Duplicate ACK {confirmation_number} received. Ignoring...')
                     else:
-                        print(f'Out of order ACK {confirmation_number} received. Resending packets...')
+                        logger.info(f'Out of order ACK {confirmation_number} received. Resending packets...')
                         break
             except socket.timeout:
-                print(f'Packet #{expected_ack} timeout. Resending packets...')
+                logger.info(f'Packet #{expected_ack} timeout. Resending packets...')
                 break
 
     client_socket.close()

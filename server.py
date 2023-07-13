@@ -2,29 +2,38 @@ import socket
 import struct
 from collections import defaultdict
 import random
+import logging
+
+logging.basicConfig(level=logging.INFO, filename='server.log', filemode='w', format='%(message)s')
+logger = logging.getLogger()
+logger.addHandler(logging.StreamHandler())
 
 def main():
     host = 'localhost'
     port = 12345
     server_address = (host, port)
 
-    packet_size = 1024
-    window_size = 10
-    loss_prob = 0.0
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_socket.bind(server_address)
 
-    print('Server waiting for connections...')
+    logger.info('Server waiting for connections...')
 
     file_size, client_address = server_socket.recvfrom(1024)
     file_size = struct.unpack('!Q', file_size)[0]
-    print(f'File size: {file_size} bytes')
+    logger.info(f'File size: {file_size} bytes')
+
+    packet_size = 1024
+    server_socket.sendto(struct.pack('!Q', packet_size), client_address)
+
+    window_size = 10
+    server_socket.sendto(struct.pack('!Q', window_size), client_address)
 
     received_packets = defaultdict(bool)
     expected_sequence_number = 0
 
     cwnd = 1
     ssthresh = float('inf')
+    loss_prob = 0.01
 
     while True:
         packet_with_number, client_address = server_socket.recvfrom(packet_size + 4)
@@ -32,7 +41,7 @@ def main():
         packet = packet_with_number[4:]
 
         if random.random() < loss_prob:
-            print('Purposeful packet loss!')
+            logger.info('Purposeful packet loss!')
             packet_number += 1
 
         if len(packet) < packet_size:
@@ -41,10 +50,10 @@ def main():
         if packet_number == expected_sequence_number:
             received_packets[packet_number] = packet
 
-            print(f'Received packet #{packet_number}...')
+            logger.info(f'Received packet #{packet_number}...')
 
             server_socket.sendto(struct.pack('!I', packet_number), client_address)
-            print(f'Delivery confirmation for packet #{packet_number} sent.')
+            logger.info(f'Delivery confirmation for packet #{packet_number} sent.')
 
             if len(received_packets) == file_size // packet_size + 1:
                 break
@@ -58,7 +67,7 @@ def main():
                     cwnd += 1 / cwnd
 
         else:
-            print(f'Unexpected sequence number #{packet_number}. Resending ACK {expected_sequence_number}.')
+            logger.info(f'Unexpected sequence number #{packet_number}. Resending ACK {expected_sequence_number}.')
             server_socket.sendto(struct.pack('!I', expected_sequence_number - 1), client_address)
 
     received_data = b''.join(received_packets[i] for i in range(len(received_packets)))
@@ -66,7 +75,7 @@ def main():
     with open('received_file.test', 'wb') as file:
         file.write(received_data)
 
-    print('File received and saved.')
+    logger.info('File received and saved.')
 
     server_socket.close()
 
