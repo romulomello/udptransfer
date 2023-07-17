@@ -49,6 +49,7 @@ def main():
         # Introduce random packet loss with a probability of loss_prob
         if random.random() < loss_prob:
             logger.info('Random packet loss!')
+            ssthresh = cwnd/2
             packet_number += 1
 
         # If the received packet is smaller than packet_size, trim it
